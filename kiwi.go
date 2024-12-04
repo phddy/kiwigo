@@ -2,7 +2,9 @@
 package kiwi
 
 /*
-#cgo LDFLAGS: -l kiwi
+#cgo CFLAGS: -I/usr/local/include
+#cgo LDFLAGS: -Wl,-rpath,/usr/local/lib
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h> // for uintptr_t
@@ -14,11 +16,12 @@ extern int KiwiReaderBridge(int lineNumber, char *buffer, void *userData);
 import "C"
 
 import (
+	"fmt"
 	"io"
 	"runtime/cgo"
 	"unsafe"
 
-	"github.com/codingpot/kiwigo/internal"
+	"github.com/phddy/kiwigo/internal"
 )
 
 // BuildOption is a bitwise OR of the KiwiBuildOption values.
@@ -91,32 +94,52 @@ type TokenResult struct {
 
 // Analyze returns the result of the analysis.
 func (k *Kiwi) Analyze(text string, topN int, options AnalyzeOption) ([]TokenResult, error) {
-	kiwiResH := C.kiwi_analyze(k.handler, C.CString(text), C.int(topN), C.int(options))
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
 
+	var blocklist C.kiwi_morphset_h
+	var pretokenized C.kiwi_pretokenized_h
+
+	kiwiResH := C.kiwi_analyze(k.handler, cText, C.int(topN), C.int(options), blocklist, pretokenized)
+	if kiwiResH == nil {
+		return nil, fmt.Errorf("failed to analyze text")
+	}
 	defer C.kiwi_res_close(kiwiResH)
 
 	resSize := int(C.kiwi_res_size(kiwiResH))
-	res := make([]TokenResult, resSize)
+	// resSize가 유효한지 체크
+	if resSize < 0 {
+		return nil, fmt.Errorf("invalid result size: %d", resSize)
+	}
+
+	res := make([]TokenResult, 0, resSize) // 초기 길이 0으로 설정하고 용량만 resSize로
 
 	for i := 0; i < resSize; i++ {
-		tokens := make([]TokenInfo, int(C.kiwi_res_word_num(kiwiResH, C.int(i))))
+		wordNum := int(C.kiwi_res_word_num(kiwiResH, C.int(i)))
+		if wordNum < 0 {
+			return nil, fmt.Errorf("invalid word number: %d", wordNum)
+		}
 
-		for j := 0; j < len(tokens); j++ {
+		tokens := make([]TokenInfo, 0, wordNum)
+
+		for j := 0; j < wordNum; j++ {
 			pos, err := ParsePOSType(C.GoString(C.kiwi_res_tag(kiwiResH, C.int(i), C.int(j))))
 			if err != nil {
 				return nil, err
 			}
-			tokens[j] = TokenInfo{
+			token := TokenInfo{
 				Form:     C.GoString(C.kiwi_res_form(kiwiResH, C.int(i), C.int(j))),
 				Tag:      pos,
 				Position: int(C.kiwi_res_position(kiwiResH, C.int(i), C.int(j))),
 			}
+			tokens = append(tokens, token)
 		}
 
-		res[i] = TokenResult{
+		result := TokenResult{
 			Tokens: tokens,
 			Score:  float32(C.kiwi_res_prob(kiwiResH, C.int(i))),
 		}
+		res = append(res, result)
 	}
 
 	return res, nil
@@ -131,20 +154,40 @@ type SplitResult struct {
 
 // SplitSentence returns the line of sentences.
 func (k *Kiwi) SplitSentence(text string, options AnalyzeOption) ([]SplitResult, error) {
-	kiwiSsH := C.kiwi_split_into_sents(k.handler, C.CString(text), C.int(options), nil)
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+
+	var tokenizedRes C.kiwi_res_h
+	kiwiSsH := C.kiwi_split_into_sents(k.handler, cText, C.int(options), &tokenizedRes)
+	if kiwiSsH == nil {
+		return nil, fmt.Errorf("failed to split sentences")
+	}
 	defer C.kiwi_ss_close(kiwiSsH)
+	if tokenizedRes != nil {
+		defer C.kiwi_res_close(tokenizedRes)
+	}
 
 	resSize := int(C.kiwi_ss_size(kiwiSsH))
-	res := make([]SplitResult, resSize)
+	if resSize < 0 {
+		return nil, fmt.Errorf("invalid result size: %d", resSize)
+	}
+
+	res := make([]SplitResult, 0, resSize)
 
 	for i := 0; i < resSize; i++ {
 		begin := int(C.kiwi_ss_begin_position(kiwiSsH, C.int(i)))
 		end := int(C.kiwi_ss_end_position(kiwiSsH, C.int(i)))
-		res[i] = SplitResult{
+
+		if begin < 0 || end < begin || end > len(text) {
+			return nil, fmt.Errorf("invalid position range: begin=%d, end=%d", begin, end)
+		}
+
+		splitResult := SplitResult{
 			Text:  text[begin:end],
 			Begin: begin,
 			End:   end,
 		}
+		res = append(res, splitResult)
 	}
 
 	return res, nil
@@ -188,7 +231,10 @@ func (kb *KiwiBuilder) LoadDict(dictPath string) int {
 
 // Build creates kiwi instance with user word etc.
 func (kb *KiwiBuilder) Build() *Kiwi {
-	h := C.kiwi_builder_build(kb.handler)
+	var typos C.kiwi_typo_h
+	typoCostThreshold := C.float(1.0)
+
+	h := C.kiwi_builder_build(kb.handler, typos, typoCostThreshold)
 	defer kb.Close()
 	return &Kiwi{
 		handler: h,

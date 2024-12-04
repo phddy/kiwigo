@@ -1,4 +1,4 @@
-module github.com/codingpot/kiwigo
+module github.com/phddy/kiwigo
 
 go 1.17
 
