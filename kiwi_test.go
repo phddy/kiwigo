@@ -8,12 +8,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var (
+	version   = "0.20.2"
+	modelPath = "./models/base"
+)
+
 func TestKiwiVersion(t *testing.T) {
-	assert.Equal(t, KiwiVersion(), "0.10.3")
+	assert.Equal(t, KiwiVersion(), version)
 }
 
 func TestAnalyze(t *testing.T) {
-	kiwi := New("./ModelGenerator", 1, KIWI_BUILD_DEFAULT)
+	kiwi := New(modelPath, 1, KIWI_BUILD_DEFAULT)
 	res, _ := kiwi.Analyze("아버지가 방에 들어가신다", 1, KIWI_MATCH_ALL)
 
 	expected := []TokenResult{
@@ -50,12 +55,12 @@ func TestAnalyze(t *testing.T) {
 					Form:     "시",
 				},
 				{
-					Position: 12,
+					Position: 11,
 					Tag:      POS_EF,
 					Form:     "ᆫ다",
 				},
 			},
-			Score: -38.967132568359375,
+			Score: -34.51142,
 		},
 	}
 
@@ -64,7 +69,7 @@ func TestAnalyze(t *testing.T) {
 }
 
 func TestSplitSentence(t *testing.T) {
-	kiwi := New("./ModelGenerator", 1, KIWI_BUILD_DEFAULT)
+	kiwi := New(modelPath, 1, KIWI_BUILD_DEFAULT)
 	res, _ := kiwi.SplitSentence("여러 문장으로 구성된 텍스트네 이걸 분리해줘", KIWI_MATCH_ALL)
 
 	expected := []SplitResult{
@@ -85,14 +90,14 @@ func TestSplitSentence(t *testing.T) {
 }
 
 func TestAddWordFail(t *testing.T) {
-	kb := NewBuilder("./ModelGenerator", 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
-	add := kb.AddWord("아버지가", "SKO", 0)
+	kb := NewBuilder(modelPath, 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
+	add := kb.AddWord("아버지가", "NNG", 0)
 	assert.Equal(t, 0, add)
 	assert.Equal(t, 0, kb.Close())
 }
 
 func TestAddWord(t *testing.T) {
-	kb := NewBuilder("./ModelGenerator", 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
+	kb := NewBuilder(modelPath, 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
 	add := kb.AddWord("아버지가", "NNG", 0)
 
 	assert.Equal(t, 0, add)
@@ -132,12 +137,12 @@ func TestAddWord(t *testing.T) {
 					Form:     "시",
 				},
 				{
-					Position: 12,
+					Position: 11,
 					Tag:      "EF",
 					Form:     "ᆫ다",
 				},
 			},
-			Score: -36.959194,
+			Score: -31.071768,
 		},
 	}
 
@@ -146,7 +151,7 @@ func TestAddWord(t *testing.T) {
 }
 
 func TestLoadDict(t *testing.T) {
-	kb := NewBuilder("./ModelGenerator", 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
+	kb := NewBuilder(modelPath, 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
 	add := kb.LoadDict("./example/user_dict.tsv")
 
 	assert.Equal(t, 1, add)
@@ -191,12 +196,12 @@ func TestLoadDict(t *testing.T) {
 					Form:     "시",
 				},
 				{
-					Position: 12,
+					Position: 11,
 					Tag:      "EF",
 					Form:     "ᆫ다",
 				},
 			},
-			Score: -36.959194,
+			Score: -31.071768,
 		},
 	}
 
@@ -205,7 +210,7 @@ func TestLoadDict(t *testing.T) {
 }
 
 func TestLoadDict2(t *testing.T) {
-	kb := NewBuilder("./ModelGenerator", 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
+	kb := NewBuilder(modelPath, 1, KIWI_BUILD_INTEGRATE_ALLOMORPH)
 	add := kb.LoadDict("./example/user_dict2.tsv")
 
 	assert.Equal(t, 3, add)
@@ -236,7 +241,7 @@ func TestLoadDict2(t *testing.T) {
 					Form:     "들어가신다",
 				},
 			},
-			Score: -13.669565,
+			Score: -12.50771,
 		},
 	}
 
@@ -245,7 +250,7 @@ func TestLoadDict2(t *testing.T) {
 }
 
 func TestExtractWord(t *testing.T) {
-	kb := NewBuilder("./ModelGenerator", 0, KIWI_BUILD_DEFAULT)
+	kb := NewBuilder(modelPath, 0, KIWI_BUILD_DEFAULT)
 	rs := strings.NewReader(`2008년에는 애국가의 작곡자 안익태가 1930년대에 독일 유학 기간 중 친일 활동을 했다는 사실이 밝혀졌다. 이후 안익태가 나치 독일 하의
 베를린에서 만주국 10주년 건국 기념음악회를 지휘하는 동영상까지 발굴되어 관련 학계나 사회에 큰 충격을 주었다. 안익태가 친일 행적을 한 바
 있다는 빼도박도 못할 증거가 나왔으니까. 영상물의 '만주환상곡'에는 우리가 현재 알고있는 '한국환상곡'의 두 선율("무궁화 삼천리 나의 사랑아,
@@ -263,17 +268,23 @@ func TestExtractWord(t *testing.T) {
 			POSScore: -1.92593,
 			Score:    0,
 		},
+		{
+			Form:     "익태",
+			Freq:     4,
+			POSScore: -0.23702252,
+			Score:    0,
+		},
 	}, wordInfos)
 	assert.Equal(t, 0, kb.Close())
 }
 
 func TestExtractWordwithFile(t *testing.T) {
-	kb := NewBuilder("./ModelGenerator", 0, KIWI_BUILD_DEFAULT)
+	kb := NewBuilder("./models/base", 0, KIWI_BUILD_DEFAULT)
 	file, _ := os.Open("./example/test.txt")
 
 	wordInfos, _ := kb.ExtractWords(file, 10 /*=minCnt*/, 5 /*=maxWordLen*/, 0.0 /*=minScore*/, -25.0 /*=posThreshold*/)
 	assert.Equal(t, WordInfo{
-		Form: "무위원", Freq: 17, POSScore: -1.7342134, Score: 0.69981515,
+		Form: "무위원", Freq: 17, POSScore: -1.7342134, Score: 0.6998151,
 	}, wordInfos[0])
 	assert.Equal(t, 0, kb.Close())
 }
